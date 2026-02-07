@@ -1,15 +1,28 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 import pandas as pd
 from io import BytesIO
 import openpyxl
 from openpyxl.styles import PatternFill
+import logging
+import os
+import signal
+import time
+
+# -------------------------------------------------
+# LOGGING SETUP
+# -------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Invoice Validation API")
 
-# ----------------------
-# Validation Logic
-# ----------------------
+# -------------------------------------------------
+# VALIDATION LOGIC
+# -------------------------------------------------
 def validate_invoice(row):
     issues = []
 
@@ -31,11 +44,24 @@ def validate_invoice(row):
 
     return issues
 
-# ----------------------
-# API Endpoint
-# ----------------------
+# -------------------------------------------------
+# GRACEFUL SHUTDOWN FUNCTION
+# -------------------------------------------------
+def shutdown_server():
+    logger.info("Shutting down server automatically (CTRL+C equivalent)")
+    time.sleep(2)  # allow response to complete
+    os.kill(os.getpid(), signal.SIGINT)
+
+# -------------------------------------------------
+# API ENDPOINT
+# -------------------------------------------------
 @app.post("/upload_invoices")
-async def upload_invoices(file: UploadFile = File(...)):
+async def upload_invoices(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...)
+):
+
+    logger.info("Invoice upload started")
 
     if not file.filename.endswith((".json", ".csv")):
         raise HTTPException(status_code=400, detail="Only JSON or CSV files supported")
@@ -43,30 +69,42 @@ async def upload_invoices(file: UploadFile = File(...)):
     content = await file.read()
 
     try:
-        df = pd.read_json(BytesIO(content)) if file.filename.endswith(".json") else pd.read_csv(BytesIO(content))
+        df = (
+            pd.read_json(BytesIO(content))
+            if file.filename.endswith(".json")
+            else pd.read_csv(BytesIO(content))
+        )
+        logger.info("File successfully read into DataFrame")
     except Exception as e:
+        logger.error("File read failed")
         raise HTTPException(status_code=400, detail=f"File read error: {e}")
 
     # Duplicate detection
-    df["is_duplicate"] = df.duplicated(subset=["invoice_number", "part_number"], keep=False)
+    df["is_duplicate"] = df.duplicated(
+        subset=["invoice_number", "part_number"], keep=False
+    )
+    logger.info("Duplicate check completed")
 
     # Rule validation
     df["Issue Type"] = df.apply(validate_invoice, axis=1)
+    logger.info("Rule-based validation completed")
 
     # Add duplicate flag
     df.loc[df["is_duplicate"], "Issue Type"] = df.loc[
         df["is_duplicate"], "Issue Type"
     ].apply(lambda x: x + ["Duplicate invoice"])
 
-    # Clean output
+    # Final cleanup
     df["Issue Type"] = df["Issue Type"].apply(lambda x: ", ".join(x) if x else "")
-    df["Status"] = df["Issue Type"].apply(lambda x: "Valid" if x == "" else "Invalid")
-
+    df["Status"] = df["Issue Type"].apply(
+        lambda x: "Valid" if x == "" else "Invalid"
+    )
     df.drop(columns=["is_duplicate"], inplace=True)
 
     # Excel export
     output_file = f"validated_{file.filename.split('.')[0]}.xlsx"
     df.to_excel(output_file, index=False)
+    logger.info("Excel file generated")
 
     # Excel formatting
     wb = openpyxl.load_workbook(output_file)
@@ -83,6 +121,12 @@ async def upload_invoices(file: UploadFile = File(...)):
             cell.fill = fill
 
     wb.save(output_file)
+
+    #FINAL LOG
+    logger.info("Validation completed successfully")
+
+    #AUTO SHUTDOWN AFTER RESPONSE
+    background_tasks.add_task(shutdown_server)
 
     return FileResponse(
         output_file,
