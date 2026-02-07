@@ -52,4 +52,5 @@ pip install fastapi uvicorn pandas openpyxl
 
 6.How to Run:
 Command:uvicorn main:app
-Use: Postman to send json and downloads automatically by running and completing validations
+
+Use Postman to send file path of json and downloads automatically by running and completes validations
