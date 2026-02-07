@@ -1,0 +1,55 @@
+Invoice Validation API - Requirements
+
+1. Python & Packages
+-------------------
+- Python >= 3.9
+- Required Python packages:
+  - fastapi        # for building the API
+  - uvicorn       # for running the API server
+  - pandas        # for data handling and processing
+  - openpyxl      # for Excel export and formatting
+
+Install dependencies via:
+pip install fastapi uvicorn pandas openpyxl
+
+2. Input Requirements
+---------------------
+- Acceptable file formats: JSON or CSV
+- Required columns (per invoice line):
+  - invoice_number   : unique invoice ID
+  - part_number      : line item identifier
+  - qty              : quantity of items
+  - sell_price       : selling price per unit
+  - cost_price       : cost per unit
+  - total_sale_value : total sale amount
+  - total_cost_value : total cost amount
+  - profit           : calculated profit
+
+3. Output Requirements
+----------------------
+- Generates Excel file: validated_<filename>.xlsx
+- Key columns:
+  - Status     : Valid / Invalid
+  - Issue Type : comma-separated validation flags
+- Excel formatting:
+  - Green   → Valid
+  - Red     → Invalid
+
+4. Validation Rules
+-------------------
+- Total sale matches (sell_price * qty)
+- Total cost matches (cost_price * qty)
+- Profit matches (total_sale_value - total_cost_value)
+- Quantity > 0
+- Duplicate invoice detection by invoice_number + part_number
+
+5. API Behavior
+---------------
+- POST /upload_invoices → Validate uploaded invoices, return Excel
+- Automatic logging of processing steps
+- Automatic shutdown after processing (simulates Ctrl+C)
+- GET /→ Health check endpoint
+
+6.How to Run:
+Command:uvicorn main:app
+Use: Postman to send json and downloads automatically by running and completing validations
